@@ -1,5 +1,5 @@
-FROM nginx:1.9.2
-MAINTAINER Jason Wilder jwilder@litl.com
+FROM funkygibbon/nginx:latest
+MAINTAINER Ray Walker <hello@raywalker.it>
 
 # Install wget and install/updates certificates
 RUN apt-get update \
@@ -10,8 +10,7 @@ RUN apt-get update \
  && rm -r /var/lib/apt/lists/*
 
 # Configure Nginx and apply fix for very long server names
-RUN echo "daemon off;" >> /etc/nginx/nginx.conf \
- && sed -i 's/^http {/&\n    server_names_hash_bucket_size 128;/g' /etc/nginx/nginx.conf
+RUN sed -i 's/^http {/&\n    server_names_hash_bucket_size 128;/g' /etc/nginx/nginx.conf
 
 # Install Forego
 RUN wget -P /usr/local/bin https://godist.herokuapp.com/projects/ddollar/forego/releases/current/linux-amd64/forego \
@@ -25,6 +24,8 @@ RUN wget https://github.com/jwilder/docker-gen/releases/download/$DOCKER_GEN_VER
 
 COPY . /app/
 WORKDIR /app/
+
+RUN rm -f /etc/nginx/sites-enabled/*
 
 ENV DOCKER_HOST unix:///tmp/docker.sock
 
