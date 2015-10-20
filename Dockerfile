@@ -9,27 +9,28 @@ RUN apt-get update \
  && apt-get clean \
  && rm -r /var/lib/apt/lists/*
 
-# Configure Nginx and apply fix for very long server names
-RUN sed -i 's/^http {/&\n    server_names_hash_bucket_size 128;/g' /etc/nginx/nginx.conf
-
-# Install Forego
-RUN wget -P /usr/local/bin https://godist.herokuapp.com/projects/ddollar/forego/releases/current/linux-amd64/forego \
- && chmod u+x /usr/local/bin/forego
-
 ENV DOCKER_GEN_VERSION 0.4.2
 
 RUN wget https://github.com/jwilder/docker-gen/releases/download/$DOCKER_GEN_VERSION/docker-gen-linux-amd64-$DOCKER_GEN_VERSION.tar.gz \
  && tar -C /usr/local/bin -xvzf docker-gen-linux-amd64-$DOCKER_GEN_VERSION.tar.gz \
  && rm /docker-gen-linux-amd64-$DOCKER_GEN_VERSION.tar.gz
 
+# Update default nginx.conf
+# - apply fix for very long server names
+# - delete access_log to allow for per-virtual host customisation in nginx.tmpl
+RUN sed -i 's/^http {/&\n    server_names_hash_bucket_size 128;/g; /access_log/d' /etc/nginx/nginx.conf
+
 COPY . /app/
 WORKDIR /app/
 
-RUN rm -f /etc/nginx/sites-enabled/*
+RUN rm -f /etc/nginx/sites-enabled/* \
+ && cp -Rf etc/* /etc 
+
+RUN chmod +x /etc/service/dockergen/run
 
 ENV DOCKER_HOST unix:///tmp/docker.sock
 
 VOLUME ["/etc/nginx/certs"]
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
-CMD ["forego", "start", "-r"]
+CMD ["/sbin/my_init"]
