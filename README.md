@@ -1,4 +1,4 @@
-![nginx 1.9.15](https://img.shields.io/badge/nginx-1.9.15-brightgreen.svg) ![License MIT](https://img.shields.io/badge/license-MIT-blue.svg) [![Build Status](https://travis-ci.org/jwilder/nginx-proxy.svg?branch=master)](https://travis-ci.org/jwilder/nginx-proxy) [![](https://img.shields.io/docker/stars/jwilder/nginx-proxy.svg)](https://hub.docker.com/r/jwilder/nginx-proxy 'DockerHub') [![](https://img.shields.io/docker/pulls/jwilder/nginx-proxy.svg)](https://hub.docker.com/r/jwilder/nginx-proxy 'DockerHub')
+![Nginx 1.11.3](https://img.shields.io/badge/nginx-1.11.3-brightgreen.svg) ![OpenSSL 1.0.2h](https://img.shields.io/badge/OpenSSL-1.0.2h-brightgreen.svg) ![License MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 
 
 nginx-proxy sets up a container running nginx and [docker-gen][1].  docker-gen generates reverse proxy configs for nginx and reloads nginx when containers are started and stopped.
@@ -17,7 +17,7 @@ Then start any containers you want proxied with an env var `VIRTUAL_HOST=subdoma
 
 The containers being proxied must [expose](https://docs.docker.com/reference/run/#expose-incoming-ports) the port to be proxied, either by using the `EXPOSE` directive in their `Dockerfile` or by using the `--expose` flag to `docker run` or `docker create`.
 
-Provided your DNS is setup to forward foo.bar.com to the a host running nginx-proxy, the request will be routed to a container with the VIRTUAL_HOST env var set.
+Provided your DNS is setup to forward foo.bar.com to the host running nginx-proxy, the request will be routed to a container with the VIRTUAL_HOST env var set.
 
 ### Docker Compose
 
