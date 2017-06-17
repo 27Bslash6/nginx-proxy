@@ -24,11 +24,24 @@ map $http_x_forwarded_proto $proxy_x_forwarded_proto {
   ''      $scheme;
 }
 
+# If we receive X-Forwarded-Port, pass it through; otherwise, pass along the
+# server port the client connected to
+map $http_x_forwarded_port $proxy_x_forwarded_port {
+  default $http_x_forwarded_port;
+  ''      $server_port;
+}
+
 # If we receive Upgrade, set Connection to "upgrade"; otherwise, delete any
 # Connection header that may have been passed to this server
 map $http_upgrade $proxy_connection {
   default upgrade;
   '' close;
+}
+
+# Set appropriate X-Forwarded-Ssl header
+map $scheme $proxy_x_forwarded_ssl {
+  default off;
+  https on;
 }
 
 gzip_types text/plain text/css application/javascript application/json application/x-javascript text/xml application/xml application/xml+rss text/javascript;
@@ -52,6 +65,8 @@ proxy_set_header Connection $proxy_connection;
 proxy_set_header X-Real-IP $remote_addr;
 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 proxy_set_header X-Forwarded-Proto $proxy_x_forwarded_proto;
+proxy_set_header X-Forwarded-Ssl $proxy_x_forwarded_ssl;
+proxy_set_header X-Forwarded-Port $proxy_x_forwarded_port;
 
 # Mitigate httpoxy attack (see README for details)
 proxy_set_header Proxy "";
@@ -71,10 +86,14 @@ proxy_connect_timeout 600s;
 proxy_send_timeout 600s;
 proxy_read_timeout 600s;
 
+{{ $enable_ipv6 := eq (or ($.Env.ENABLE_IPV6) "") "true" }}
+
 server {
 	server_name _; # This is just an invalid value which will never trigger on a real hostname.
 	listen 80;
-	access_log /var/log/nginx/access.log vhost;
+	{{ if $enable_ipv6 }}
+	listen [::]:80;
+	{{ end }}
 	return 503;
 }
 
@@ -82,9 +101,12 @@ server {
 server {
 	server_name _; # This is just an invalid value which will never trigger on a real hostname.
 	listen 443 ssl http2;
-	access_log /var/log/nginx/access.log vhost;
+	{{ if $enable_ipv6 }}
+	listen [::]:443 ssl http2;
+	{{ end }}
 	return 503;
 
+	ssl_session_tickets off;
 	ssl_certificate /etc/nginx/ssl/default.crt;
 	ssl_certificate_key /etc/nginx/ssl/default.key;
 }
@@ -92,7 +114,13 @@ server {
 
 {{ range $host, $containers := groupByMulti $ "Env.VIRTUAL_HOST" "," }}
 
-upstream {{ $host }} {
+{{ $host := trim $host }}
+{{ $is_regexp := hasPrefix "~" $host }}
+{{ $upstream_name := when $is_regexp (sha1 $host) $host }}
+
+# {{ $host }}
+upstream {{ $upstream_name }} {
+
 {{ range $container := $containers }}
 	{{ $addrLen := len $container.Addresses }}
 
@@ -121,10 +149,10 @@ upstream {{ $host }} {
 {{ $default_server := index (dict $host "" $default_host "default_server") $host }}
 
 {{/* Get the VIRTUAL_PROTO defined by containers w/ the same vhost, falling back to "http" */}}
-{{ $proto := or (first (groupByKeys $containers "Env.VIRTUAL_PROTO")) "http" }}
+{{ $proto := trim (or (first (groupByKeys $containers "Env.VIRTUAL_PROTO")) "http") }}
 
 {{/* Get the HTTPS_METHOD defined by containers w/ the same vhost, falling back to "redirect" */}}
-{{ $https_method := or (first (groupByKeys $containers "Env.HTTPS_METHOD")) "redirect" }}
+{{ $https_method := or (first (groupByKeys $containers "Env.HTTPS_METHOD")) "basic" }}
 
 {{/* Get the first cert name defined by containers w/ the same vhost */}}
 {{ $certName := (first (groupByKeys $containers "Env.CERT_NAME")) }}
@@ -133,13 +161,13 @@ upstream {{ $host }} {
 {{ $vhostCert := (closest (dir "/etc/nginx/ssl") (printf "%s.crt" $host))}}
 
 {{/* vhostCert is actually a filename so remove any suffixes since they are added later */}}
-{{ $vhostCert := replace $vhostCert ".crt" "" -1 }}
-{{ $vhostCert := replace $vhostCert ".key" "" -1 }}
+{{ $vhostCert := trimSuffix ".crt" $vhostCert }}
+{{ $vhostCert := trimSuffix ".key" $vhostCert }}
 
 {{/* Use the cert specified on the container or fallback to the best vhost match */}}
 {{ $cert := (coalesce $certName $vhostCert) }}
 
-{{ $is_https := (and (ne $cert "") (exists (printf "/etc/nginx/ssl/%s.crt" $cert)) (exists (printf "/etc/nginx/ssl/%s.key" $cert))) }}
+{{ $is_https := (and (ne $https_method "nohttps") (ne $cert "") (exists (printf "/etc/nginx/ssl/%s.crt" $cert)) (exists (printf "/etc/nginx/ssl/%s.key" $cert))) }}
 
 {{ if $is_https }}
 
@@ -147,6 +175,9 @@ upstream {{ $host }} {
 server {
 	server_name {{ $host }};
 	listen 80 {{ $default_server }};
+	{{ if $enable_ipv6 }}
+	listen [::]:80 {{ $default_server }};
+	{{ end }}
 	return 301 https://$host$request_uri;
 }
 {{ end }}
@@ -154,6 +185,9 @@ server {
 server {
 	server_name {{ $host }};
 	listen 443 ssl http2 {{ $default_server }};
+	{{ if $enable_ipv6 }}
+	listen [::]:443 ssl http2 {{ $default_server }};
+	{{ end }}
 
 	ssl_certificate /etc/nginx/ssl/{{ (printf "%s.crt" $cert) }};
 	ssl_certificate_key /etc/nginx/ssl/{{ (printf "%s.key" $cert) }};
@@ -162,7 +196,7 @@ server {
 	ssl_dhparam {{ printf "/etc/nginx/ssl/%s.dhparam.pem" $cert }};
 	{{ end }}
 
-	{{ if (ne $https_method "noredirect") }}
+	{{ if (eq $https_method "hsts") }}
 	add_header Strict-Transport-Security "max-age=31536000";
 	{{ end }}
 
@@ -173,7 +207,13 @@ server {
 	{{ end }}
 
 	location / {
-		proxy_pass {{ trim $proto }}://{{ trim $host }};
+		{{ if eq $proto "uwsgi" }}
+		include uwsgi_params;
+		uwsgi_pass {{ trim $proto }}://{{ trim $upstream_name }};
+		{{ else }}
+		proxy_pass {{ trim $proto }}://{{ trim $upstream_name }};
+		{{ end }}
+
 		{{ if (exists (printf "/etc/nginx/htpasswd/%s" $host)) }}
 		auth_basic	"Restricted {{ $host }}";
 		auth_basic_user_file	{{ (printf "/etc/nginx/htpasswd/%s" $host) }};
@@ -188,11 +228,14 @@ server {
 
 {{ end }}
 
-{{ if or (not $is_https) (eq $https_method "noredirect") }}
+{{ if or (not $is_https) (ne $https_method "hsts") }}
 
 server {
 	server_name {{ $host }};
 	listen 80 {{ $default_server }};
+	{{ if $enable_ipv6 }}
+	listen [::]:80 {{ $default_server }};
+	{{ end }}
 
 	{{ if (exists (printf "/etc/nginx/vhost.d/%s" $host)) }}
 	include {{ printf "/etc/nginx/vhost.d/%s" $host }};
@@ -201,7 +244,12 @@ server {
 	{{ end }}
 
 	location / {
-		proxy_pass {{ trim $proto }}://{{ trim $host }};
+		{{ if eq $proto "uwsgi" }}
+		include uwsgi_params;
+		uwsgi_pass {{ trim $proto }}://{{ trim $upstream_name }};
+		{{ else }}
+		proxy_pass {{ trim $proto }}://{{ trim $upstream_name }};
+		{{ end }}
 		{{ if (exists (printf "/etc/nginx/htpasswd/%s" $host)) }}
 		auth_basic	"Restricted {{ $host }}";
 		auth_basic_user_file	{{ (printf "/etc/nginx/htpasswd/%s" $host) }};
@@ -218,6 +266,9 @@ server {
 server {
 	server_name {{ $host }};
 	listen 443 ssl http2 {{ $default_server }};
+	{{ if $enable_ipv6 }}
+	listen [::]:443 ssl http2 {{ $default_server }};
+	{{ end }}
 	return 500;
 
 	ssl_certificate /etc/nginx/ssl/default.crt;
