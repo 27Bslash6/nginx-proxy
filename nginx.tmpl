@@ -151,7 +151,7 @@ upstream {{ $upstream_name }} {
 {{/* Get the VIRTUAL_PROTO defined by containers w/ the same vhost, falling back to "http" */}}
 {{ $proto := trim (or (first (groupByKeys $containers "Env.VIRTUAL_PROTO")) "http") }}
 
-{{/* Get the HTTPS_METHOD defined by containers w/ the same vhost, falling back to "redirect" */}}
+{{/* Get the HTTPS_METHOD defined by containers w/ the same vhost, falling back to "basic" */}}
 {{ $https_method := or (first (groupByKeys $containers "Env.HTTPS_METHOD")) "basic" }}
 
 {{/* Get the first cert name defined by containers w/ the same vhost */}}
@@ -169,9 +169,13 @@ upstream {{ $upstream_name }} {
 
 {{ $is_https := (and (ne $https_method "nohttps") (ne $cert "") (exists (printf "/etc/nginx/ssl/%s.crt" $cert)) (exists (printf "/etc/nginx/ssl/%s.key" $cert))) }}
 
+
+# HTTPS_METHOD {{ $https_method }}
+
 {{ if $is_https }}
 
-{{ if eq $https_method "redirect" }}
+
+{{ if or (eq $https_method "redirect") (eq $https_method "hsts") }}
 server {
 	server_name {{ $host }};
 	listen 80 {{ $default_server }};
