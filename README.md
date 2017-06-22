@@ -1,4 +1,4 @@
-![Nginx 1.11.3](https://img.shields.io/badge/nginx-1.11.3-brightgreen.svg) ![OpenSSL 1.0.2h](https://img.shields.io/badge/OpenSSL-1.0.2h-brightgreen.svg) ![License MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+![Nginx 1.13.1](https://img.shields.io/badge/nginx-1.13.1-brightgreen.svg) ![OpenSSL 1.1.0f](https://img.shields.io/badge/OpenSSL-1.1.0f-brightgreen.svg) ![License MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 
 
 nginx-proxy sets up a container running nginx and [docker-gen][1].  docker-gen generates reverse proxy configs for nginx and reloads nginx when containers are started and stopped.
